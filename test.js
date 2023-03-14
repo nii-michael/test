@@ -143,7 +143,7 @@ app.post('/capture-pay-details', async (req, res, next) => {
     return res.status(HTTP_STATUS_CODES.OK).send('Details captured successfully.');
   } catch (err) {
     console.error('Error capturing pay details:', err);
-    return res.status(HTTP_STATUS_CODES.NOT_WP).send('An error occurred while updating ticket payment details(Paid winning ticket.)');
+    return res.status(HTTP_STATUS_CODES.SERVER_ERROR).send(err.response.data);
 
     return next(err);
   }
