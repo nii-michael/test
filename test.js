@@ -51,7 +51,7 @@ app.post('/add-columns', async (req, res, next) => {
         ADD PhoneNetwork VARCHAR(255),
         ADD IdType VARCHAR(255),
         ADD IdNumber VARCHAR(255),
-        ADD AmountPaid DECIMAL(13,4),
+        ADD AmountPaid DECIMAL(10,2),
         ADD method VARCHAR(255),
        ADD PaidDate_Time DATETIME`);
       connection.release();
@@ -94,13 +94,27 @@ app.post('/validate-ticket', async (req, res, next) => {
 // Capture pay details endpoint
 app.post('/capture-pay-details', async (req, res, next) => {
   try {
-    const { Surname, FirstName, PhoneNumber, PhoneNetwork, IdType, IdNumber, AmountPaid, method, ticket } = req.body;
-    
+    const { Surname, FirstName, PhoneNumber, PhoneNetwork, IdType, IdNumber, AmountPaid	, method, ticket } = req.body;
+
+    // Validate ticket
     const validateRes = await axios.post('http://localhost:5000/validate-ticket', { ticketNo: ticket });
-    
-    if (validateRes.status === HTTP_STATUS_CODES.OK) {
-      const connection = await pool.getConnection();
-      const updateResult = await connection.execute(
+    if (validateRes.status !== HTTP_STATUS_CODES.OK) {
+      if (validateRes.status === HTTP_STATUS_CODES.NOT_FOUND) {
+        return res.status(HTTP_STATUS_CODES.NOT_FOUND).send('Ticket does not exist.');
+      } else if (validateRes.status === HTTP_STATUS_CODES.NOT_WIN) {
+        return res.status(HTTP_STATUS_CODES.NOT_WIN).send('Not a winning ticket.');
+      } else if (validateRes.status === HTTP_STATUS_CODES.NOT_WP) {
+        return res.status(HTTP_STATUS_CODES.NOT_WP).send('Paid winning ticket.');
+      } else {
+        return res.status(HTTP_STATUS_CODES.SERVER_ERROR).send('An error occurred while validating ticket.');
+      }
+    }
+
+    // Update ticket payment details
+    const connection = await pool.getConnection();
+    let updateResult;
+    try {
+      updateResult = await connection.execute(
         `UPDATE tickets SET 
           Surname = ?, 
           FirstName = ?, 
@@ -108,41 +122,38 @@ app.post('/capture-pay-details', async (req, res, next) => {
           PhoneNetwork = ?, 
           IdType = ?, 
           IdNumber = ?,
-          AmountPaid= ?, 
+          AmountPaid	= ?, 
           method = ?, 
           Paid = 1, 
           PaidDate_time = NOW() 
         WHERE TicketNumber = ?`,
         [Surname, FirstName, PhoneNumber, PhoneNetwork, IdType, IdNumber,AmountPaid, method, ticket]
       );
+    } catch (err) {
+      console.error('Error executing update query:', err);
+      return res.status(HTTP_STATUS_CODES.SERVER_ERROR).send('An error occurred while updating ticket payment details.');
+    } finally {
       connection.release();
-      
-      if (updateResult.affectedRows === 0) {
-        return res.status(HTTP_STATUS_CODES.SERVER_ERROR).send('An error occurred while updating ticket payment details.');
-      }
-
-      return res.status(HTTP_STATUS_CODES.OK).send('Details captured carefully.');
-    } else if (validateRes.status === HTTP_STATUS_CODES.NOT_FOUND) {
-      return res.status(HTTP_STATUS_CODES.NOT_FOUND).send('Ticket does not exist.');
-    } else if (validateRes.status === HTTP_STATUS_CODES.NOT_WIN) {
-      return res.status(HTTP_STATUS_CODES.NOT_WIN).send('Not a winning ticket.');
-    } else if (validateRes.status === HTTP_STATUS_CODES.NOT_WP) {
-      return res.status(HTTP_STATUS_CODES.NOT_WP).send('Paid winning ticket.');
-    } else {
-      return res.status(HTTP_STATUS_CODES.SERVER_ERROR).send('An error occurred while validating ticket.');
     }
+
+    if (updateResult.affectedRows === 0) {
+      return res.status(HTTP_STATUS_CODES.SERVER_ERROR).send('An error occurred while updating ticket payment details.');
+    }
+
+    return res.status(HTTP_STATUS_CODES.OK).send('Details captured successfully.');
   } catch (err) {
-    console.error(err);
+    console.error('Error capturing pay details:', err);
     return next(err);
   }
 });
 
-
+// Error handling middleware
 app.use((err, req, res, next) => {
-    console.error(err);
-    return res.status(HTTP_STATUS_CODES.SERVER_ERROR).send('An error occurred while processing your request. Please try again.');
-  });
-  
-  app.listen(port, () => {
-    console.log(`Server running on port ${port}`);
-  });
+  console.error('Error processing request:', err);
+  return res.status(HTTP_STATUS_CODES.SERVER_ERROR).send('An error occurred while processing your request. Please try again.');
+});
+
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
+
